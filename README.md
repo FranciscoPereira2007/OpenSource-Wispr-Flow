@@ -14,6 +14,15 @@ Tap rápido **Fn** → cola novamente o último transcript.
 
 ## Instalar
 
+### Noutro Mac
+
+```bash
+git clone https://github.com/FranciscoPereira2007/dictate-wispr-flow.git ~/dictate
+cd ~/dictate
+```
+
+Depois corre:
+
 ```bash
 # 1. pré-reqs
 brew install uv

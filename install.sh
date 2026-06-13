@@ -6,6 +6,8 @@ set -euo pipefail
 DICT_DIR="$HOME/dictate"
 VENV="$DICT_DIR/.venv"
 
+mkdir -p "$DICT_DIR/logs"
+
 echo "==> creating venv"
 if ! command -v uv >/dev/null 2>&1; then
   echo "uv não instalado. instala: brew install uv"
