@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+
+.venv/
+.claude-flow/
+
+logs/
+history.jsonl
+
+.env
+.env.*
+
+*.log
