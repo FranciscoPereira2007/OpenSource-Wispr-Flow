@@ -985,19 +985,44 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
 .donut {
   width: 132px;
   height: 132px;
-  border-radius: 50%;
-  background: conic-gradient(#737373 0deg 360deg);
   position: relative;
 }
-.donut:after {
-  content: "";
-  position: absolute;
-  inset: 24px;
-  border-radius: 50%;
-  background: var(--surface);
+.donut-svg { width: 132px; height: 132px; overflow: visible; display: block; }
+.donut-segment {
+  cursor: pointer;
+  transition: filter .14s ease, transform .14s ease, opacity .14s ease;
+  transform-origin: 66px 66px;
 }
+.donut-segment:hover,
+.donut-segment:focus,
+.donut-segment.active {
+  filter: brightness(.78) saturate(1.12);
+  transform: scale(1.035);
+  outline: none;
+}
+.donut-hole { fill: var(--surface); pointer-events: none; }
+.donut-tip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 82px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: rgba(23,23,23,.92);
+  color: #fff;
+  text-align: center;
+  box-shadow: 0 12px 30px rgba(0,0,0,.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease;
+}
+.donut-tip.show { opacity: 1; }
+.donut-tip b { display: block; font-size: 18px; line-height: 1; margin-bottom: 3px; }
+.donut-tip span { display: block; font-size: 11px; color: #d7d4ce; white-space: nowrap; }
 .legend { display: grid; gap: 8px; }
-.legend-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+.legend-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; border-radius: 7px; padding: 3px 4px; transition: background .14s ease; }
+.legend-row.active { background: #f1eee7; }
 .legend-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
 .score-wrap { display: grid; grid-template-columns: 124px 1fr; gap: 18px; align-items: center; }
@@ -1457,29 +1482,114 @@ function languageLabel(meta) {
   if (meta.language === 'mixed') return 'Mixed EN/PT';
   return 'Unknown';
 }
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const angleRad = (angleDeg - 90) * Math.PI / 180;
+  return {
+    x: cx + (r * Math.cos(angleRad)),
+    y: cy + (r * Math.sin(angleRad))
+  };
+}
+function donutPath(cx, cy, outerR, innerR, startAngle, endAngle) {
+  const outerStart = polarToCartesian(cx, cy, outerR, endAngle);
+  const outerEnd = polarToCartesian(cx, cy, outerR, startAngle);
+  const innerStart = polarToCartesian(cx, cy, innerR, startAngle);
+  const innerEnd = polarToCartesian(cx, cy, innerR, endAngle);
+  const largeArc = endAngle - startAngle <= 180 ? 0 : 1;
+  return [
+    'M', outerStart.x, outerStart.y,
+    'A', outerR, outerR, 0, largeArc, 0, outerEnd.x, outerEnd.y,
+    'L', innerStart.x, innerStart.y,
+    'A', innerR, innerR, 0, largeArc, 1, innerEnd.x, innerEnd.y,
+    'Z'
+  ].join(' ');
+}
+function setDonutHover(key, item) {
+  const tip = document.getElementById('donut-tip');
+  document.querySelectorAll('.legend-row').forEach(row => {
+    row.classList.toggle('active', row.dataset.key === key);
+  });
+  document.querySelectorAll('.donut-segment').forEach(seg => {
+    seg.classList.toggle('active', seg.dataset.key === key);
+  });
+  if (!item) {
+    tip.classList.remove('show');
+    return;
+  }
+  tip.innerHTML = `<b>${item.pct}%</b><span>${esc(item.label)}</span><span>${(item.words || 0).toLocaleString('pt-PT')} words</span>`;
+  tip.classList.add('show');
+}
+function configureDonutHover(segments) {
+  const donut = document.getElementById('donut');
+  donut.onmousemove = (event) => {
+    const rect = donut.getBoundingClientRect();
+    const x = event.clientX - rect.left - rect.width / 2;
+    const y = event.clientY - rect.top - rect.height / 2;
+    const radius = Math.sqrt(x * x + y * y);
+    if (radius < 42 || radius > 66) {
+      setDonutHover(null, null);
+      return;
+    }
+    let angle = Math.atan2(y, x) * 180 / Math.PI + 90;
+    if (angle < 0) angle += 360;
+    const hit = segments.find(seg => angle >= seg.start && angle <= seg.end);
+    setDonutHover(hit?.item?.key || null, hit?.item || null);
+  };
+  donut.onmouseleave = () => setDonutHover(null, null);
+  donut.querySelectorAll('.donut-segment').forEach(segment => {
+    segment.onfocus = () => {
+      const item = segments.find(seg => seg.item.key === segment.dataset.key)?.item;
+      setDonutHover(segment.dataset.key, item);
+    };
+    segment.onblur = () => setDonutHover(null, null);
+  });
+}
 function renderDonut(categories) {
   const active = categories.filter(c => c.words > 0).slice(0, 6);
   const donut = document.getElementById('donut');
   const legend = document.getElementById('legend');
   if (!active.length) {
-    donut.style.background = 'conic-gradient(#d6d3d1 0deg 360deg)';
+    donut.innerHTML = `
+      <svg class="donut-svg" viewBox="0 0 132 132" aria-label="No use case data yet">
+        <circle cx="66" cy="66" r="66" fill="#d6d3d1"></circle>
+        <circle class="donut-hole" cx="66" cy="66" r="42"></circle>
+      </svg>
+      <div class="donut-tip" id="donut-tip"></div>`;
     legend.innerHTML = '<div class="legend-row"><span class="legend-left"><span class="dot" style="background:#d6d3d1"></span>No data yet</span><b>0%</b></div>';
     return;
   }
   let start = 0;
-  const parts = [];
+  const paths = [];
+  const ranges = [];
   for (const c of active) {
-    const deg = Math.max(2, c.pct * 3.6);
-    parts.push(`${c.color} ${start}deg ${start + deg}deg`);
-    start += deg;
+    const deg = Math.max(3, c.pct * 3.6);
+    const end = Math.min(start + deg, 359.99);
+    const path = donutPath(66, 66, 66, 42, start, end);
+    ranges.push({start, end, item: c});
+    paths.push(`
+      <path
+        class="donut-segment"
+        data-key="${esc(c.key)}"
+        d="${path}"
+        fill="${c.color}"
+        tabindex="0"
+        role="img"
+        aria-label="${esc(c.label)} ${c.pct}%">
+        <title>${esc(c.label)} · ${c.pct}% · ${(c.words || 0).toLocaleString('pt-PT')} words</title>
+      </path>`);
+    start = end;
   }
-  if (start < 360) parts.push(`#e5e1d8 ${start}deg 360deg`);
-  donut.style.background = `conic-gradient(${parts.join(',')})`;
+  donut.innerHTML = `
+    <svg class="donut-svg" viewBox="0 0 132 132" aria-label="Use case distribution">
+      ${paths.join('')}
+      <circle class="donut-hole" cx="66" cy="66" r="42"></circle>
+    </svg>
+    <div class="donut-tip" id="donut-tip"></div>`;
   legend.innerHTML = active.map(c => `
-    <div class="legend-row">
+    <div class="legend-row" data-key="${esc(c.key)}">
       <span class="legend-left"><span class="dot" style="background:${c.color}"></span>${esc(c.label)}</span>
       <b>${c.pct}%</b>
     </div>`).join('');
+  configureDonutHover(ranges);
 }
 function renderPhrases(phrases) {
   document.getElementById('phrase-bank').innerHTML = phrases.map(item => {
