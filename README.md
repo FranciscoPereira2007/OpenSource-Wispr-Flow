@@ -25,36 +25,43 @@ It's the tool I use every day. It's about 500 lines of Python. That's the point.
 
 ## What you get
 
-- **Push-to-talk.** Hold `Fn+Space`, speak, release. The text is transcribed and pasted into the active app.
-- **Tap to re-paste.** A quick tap of `Fn` pastes the last transcript again.
+- **Push-to-talk.** Press `Ctrl+Space` to start, speak, press `Ctrl+Space` again to stop and paste into the active app.
+- **Re-paste.** Press `Ctrl+Shift+V` to paste the last transcript again. Optional MacBook mappings for `Fn+Space` and `Fn` are also installed through Karabiner.
 - **Fast.** `mlx-whisper` (large-v3-turbo, fp16) on Apple Silicon: ~300–500 ms for a short sentence. The model stays warm, so there's no cold start after the first run.
 - **Actually private.** Audio is captured, transcribed, and thrown away in memory. Nothing is uploaded. There is no network code.
-- **Always the right mic.** It records from the MacBook's built-in microphone on purpose — even with AirPods connected — so you never get muffled dictation from an earbud mic.
+- **Flexible mic selection.** It prefers Apple/internal microphones, but also works with Studio Display, iMac, Mac mini, USB microphones, and the macOS default input.
 - **A local learning dashboard** at `localhost:7717`: editable transcript history, word count, WPM, English/Portuguese split, use-case categories, and a small phrase bank for daily practice. Runs on your machine, served from the same daemon (see screenshot above).
 - **Starts on login** via `launchd` and stays running.
 
 ## How it works
 
-macOS won't let you bind the raw `Fn` key, so the hotkey path takes a small detour:
+The main hotkey path works on MacBook keyboards and external desktop keyboards:
 
 ```mermaid
 flowchart LR
-  A["Fn+Space held"] -->|Karabiner remaps to F18| B[Hammerspoon]
+  A["Ctrl+Space"] --> B[Hammerspoon]
   B -->|client.sh START / STOP| C["daemon.py<br/>(Unix socket)"]
   C -->|mic audio| D["MLX Whisper (large-v3-turbo, warm in RAM)"]
   D -->|text| E["pbcopy to clipboard"]
   E -->|Cmd+V| F["your active app"]
 ```
 
-- **Karabiner-Elements** remaps `Fn+Space` -> `F18` and a `Fn` tap -> `F19` (the native `Fn` key isn't capturable).
-- **Hammerspoon** listens for those keys and calls `client.sh`.
+- **Hammerspoon** listens for `Ctrl+Space` and calls `client.sh`.
+- **Karabiner-Elements** is optional for the MacBook-style shortcuts: `Fn+Space` -> `F18` and `Fn` tap -> `F19` (the native `Fn` key isn't capturable).
 - **`daemon.py`** is a long-running process that loads the model once and listens on a Unix socket. It records while you hold the key, transcribes on release, copies to the clipboard, and pastes.
 
 ## Requirements
 
 - A Mac with **Apple Silicon** (M1 or newer)
 - [Homebrew](https://brew.sh)
-- Two free apps for the hotkey layer: **Karabiner-Elements** and **Hammerspoon**
+- **Hammerspoon** for the hotkey layer
+- Optional: **Karabiner-Elements** for `Fn+Space` / `Fn` mappings on MacBook keyboards
+
+Desktop support currently means macOS desktops and external keyboards: iMac,
+Mac mini, Mac Studio, Studio Display mic, USB microphones, and Windows-style
+keyboards connected to a Mac. Native Windows support would need a separate
+hotkey, clipboard, audio-device, and service layer because this repo uses
+macOS-specific tools such as `launchd`, Hammerspoon, `pbcopy`, and AppleScript.
 
 ## Install
 
@@ -75,10 +82,10 @@ bash ~/dictate/setup_hotkeys.sh
 
 Then grant the permissions macOS asks for once:
 
-1. **Karabiner-Elements** -> _Complex Modifications_ -> _Add rule_ -> enable **Dictate (Wispr-style)**.
-2. Open **Hammerspoon** once -> _System Settings > Privacy & Security > Accessibility_ -> enable Hammerspoon.
+1. Open **Hammerspoon** once -> _System Settings > Privacy & Security > Accessibility_ -> enable Hammerspoon.
+2. Optional MacBook shortcuts: **Karabiner-Elements** -> _Complex Modifications_ -> _Add rule_ -> enable **Dictate (Wispr-style)**.
 3. _System Settings > Privacy > Microphone_ -> enable the venv's Python and Hammerspoon.
-4. _System Settings > Keyboard_ -> turn **Use F1, F2, etc. as standard function keys** ON (otherwise macOS eats the `Fn` key).
+4. Optional MacBook shortcuts: _System Settings > Keyboard_ -> turn **Use F1, F2, etc. as standard function keys** ON (otherwise macOS eats the `Fn` key).
 
 ## Check it's alive
 
@@ -92,6 +99,8 @@ tail -f ~/dictate/logs/daemon.log
 ## Dashboard always-on
 
 The local dashboard lives at `http://127.0.0.1:7717/`.
+
+`?demo=1` is only for documentation screenshots. It shows fake fixed numbers and does not update from your real dictation history.
 
 The dashboard includes:
 
@@ -107,6 +116,8 @@ There are two LaunchAgents:
 
 - `com.fran.dictate`: keeps the dictation daemon, microphone, and transcription service alive.
 - `com.fran.dictate.dashboard-watch`: checks the dashboard every 60 seconds. If it goes down, it restarts the daemon; when it responds again, it opens the dashboard in Chrome.
+
+This keeps the dashboard alive while macOS is awake and your user session is running. If the Mac sleeps, shuts down, logs out, or a MacBook sleeps after closing the lid, the local dashboard and agents stop until the machine wakes again.
 
 Useful commands:
 

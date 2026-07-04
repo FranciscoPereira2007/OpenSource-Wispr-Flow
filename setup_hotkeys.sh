@@ -1,5 +1,7 @@
 #!/bin/bash
-# Wires Karabiner (Fn+Space → F18 hold, Fn tap → F19) + Hammerspoon (F18/F19 → daemon).
+# Wires Hammerspoon hotkeys + optional Karabiner Fn mapping.
+# Main keyboard path: Ctrl+Space toggles dictation, Ctrl+Shift+V re-pastes last transcript.
+# Optional MacBook path: Fn+Space -> F18 hold, Fn tap -> F19 paste.
 set -euo pipefail
 
 # --- Karabiner complex modification ---
@@ -110,7 +112,34 @@ local function send(cmd, cb)
               {DICTATE, cmd}):start()
 end
 
--- F18 = hold-to-talk
+-- Ctrl+Space = toggle start / stop+paste. Works on MacBook and external desktop keyboards.
+hs.hotkey.bind({"ctrl"}, "space", function()
+  if not recording then
+    recording = true
+    send("START")
+    showOverlay("rec")
+  else
+    recording = false
+    showOverlay("xcribe")
+    send("STOP_PASTE", function(out)
+      local txt = (out or ""):match('"text":%s*"(.-)"') or ""
+      killOverlay()
+      if txt ~= "" then
+        hs.alert.closeAll()
+        hs.alert.show("✓ " .. (txt:sub(1,60)), {radius = 12, textSize = 14}, 1.2)
+      else
+        hs.alert.show("∅ nada captado", 0.8)
+      end
+    end)
+  end
+end)
+
+-- Ctrl+Shift+V = re-paste último transcript. Useful on external/Windows-style keyboards.
+hs.hotkey.bind({"ctrl", "shift"}, "v", function()
+  send("PASTE")
+end)
+
+-- F18 = optional hold-to-talk via Karabiner Fn+Space.
 hs.hotkey.bind({}, "F18",
   function()  -- pressed
     if not recording then
@@ -137,7 +166,7 @@ hs.hotkey.bind({}, "F18",
   end
 )
 
--- F19 = re-paste último transcript
+-- F19 = optional re-paste via Karabiner Fn tap.
 hs.hotkey.bind({}, "F19", function()
   send("PASTE")
 end)
@@ -157,5 +186,7 @@ fi
 
 echo
 echo "✅ pronto. uso:"
-echo "   • Fn+Space (segura) → fala → solta → cola transcript no campo activo"
-echo "   • Fn (tap rápido)   → cola novamente o último transcript"
+echo "   • Ctrl+Space         → começa/termina e cola transcript no campo activo"
+echo "   • Ctrl+Shift+V       → cola novamente o último transcript"
+echo "   • Fn+Space opcional  → fala enquanto seguras (via Karabiner)"
+echo "   • Fn opcional        → cola novamente o último transcript (via Karabiner)"

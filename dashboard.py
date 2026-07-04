@@ -1212,6 +1212,30 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
   pointer-events: none;
 }
 .toast.show { opacity: 1; }
+.demo-banner {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: -22px 0 18px;
+  border: 1px solid #f59e0b;
+  background: #fffbeb;
+  color: #7c2d12;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 720;
+}
+.demo-banner.show { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.demo-banner button {
+  border: 0;
+  background: #171717;
+  color: #fff;
+  border-radius: 7px;
+  padding: 6px 9px;
+  cursor: pointer;
+  font-weight: 760;
+}
 @media (max-width: 1040px) {
   .app { grid-template-columns: 1fr; }
   .side { display: none; }
@@ -1256,6 +1280,10 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
     </div>
   </aside>
   <main class="shell" id="scroll-root">
+    <div class="demo-banner" id="demo-banner">
+      <span>Demo mode: these are fake documentation numbers. Open the live dashboard to see your real stats.</span>
+      <button onclick="location.href='/'">Open live</button>
+    </div>
     <div class="top" id="home">
       <h1>Welcome back, Francisco</h1>
       <div class="top-stats">
@@ -1349,6 +1377,9 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
 let historyCache = [];
 let editingTs = null;
 const DEMO_MODE = new URLSearchParams(window.location.search).has('demo');
+if (DEMO_MODE) {
+  queueMicrotask(() => document.getElementById('demo-banner')?.classList.add('show'));
+}
 const DEMO_STATS = {
   total_words: 18420,
   total_seconds: 6420,
