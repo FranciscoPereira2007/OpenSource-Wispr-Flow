@@ -139,11 +139,15 @@ and read the same summary aloud.
 ~/dictate/voice_reply.sh "Task finished. The dashboard is live."
 echo "Your English score today is 6 out of 10." | ~/dictate/voice_reply.sh
 ~/dictate/voice_reply.sh --list-voices
+DICTATE_REPLY_VOICE=Daniel DICTATE_REPLY_RATE=155 ~/dictate/voice_reply.sh "This is a slower English voice."
 ```
 
 This is intentionally not real-time conversation yet. The recommended flow is:
 text remains the source of truth, audio reads the final result, and real-time
 streaming voice can be added later once the basic voice loop feels useful.
+
+The default voice is `Daniel` at `155` words per minute because it is slower and
+clearer for English practice than the macOS default voice.
 
 ## Debug note — 2026-06-14/15
 
