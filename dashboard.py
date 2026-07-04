@@ -1034,6 +1034,14 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
   place-items: center;
   background: conic-gradient(var(--accent) 0deg, #e5e1d8 0deg 360deg);
   position: relative;
+  cursor: pointer;
+  transition: filter .14s ease, transform .14s ease;
+}
+.score-ring:hover,
+.score-ring:focus {
+  filter: brightness(.86) saturate(1.1);
+  transform: scale(1.035);
+  outline: none;
 }
 .score-ring:after {
   content: "";
@@ -1048,6 +1056,27 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
   font-size: 31px;
   font-weight: 840;
 }
+.score-tip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 96px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: rgba(23,23,23,.92);
+  color: #fff;
+  text-align: center;
+  box-shadow: 0 12px 30px rgba(0,0,0,.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease;
+  z-index: 2;
+}
+.score-ring:hover .score-tip,
+.score-ring:focus .score-tip { opacity: 1; }
+.score-tip b { display: block; font-size: 18px; line-height: 1; margin-bottom: 3px; }
+.score-tip span { display: block; font-size: 11px; color: #d7d4ce; white-space: nowrap; }
 .score-label { font-size: 22px; font-weight: 820; margin-bottom: 7px; }
 .score-sub, .score-average { color: var(--muted); font-size: 13px; line-height: 1.45; }
 .vocab-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -1282,7 +1311,10 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
       <div class="panel pad score-panel">
         <h3 class="panel-title">English Structure Score</h3>
         <div class="score-wrap">
-          <div class="score-ring" id="score-ring"><span id="score-value">0.0</span></div>
+          <div class="score-ring" id="score-ring" tabindex="0">
+            <span id="score-value">0.0</span>
+            <div class="score-tip" id="score-tip"></div>
+          </div>
           <div>
             <div class="score-label" id="score-label">No English yet</div>
             <div class="score-sub">Latest English/mixed dictation · <span id="score-trend">0.0</span> vs previous</div>
@@ -1614,6 +1646,7 @@ function renderScore(score) {
   document.getElementById('score-label').textContent = score?.label || 'No English yet';
   document.getElementById('score-trend').textContent = `${trend >= 0 ? '+' : ''}${trend.toFixed(1)}`;
   document.getElementById('score-average').textContent = Number(score?.average || 0).toFixed(1);
+  document.getElementById('score-tip').innerHTML = `<b>${current.toFixed(1)}/10</b><span>${esc(score?.label || 'No English yet')}</span><span>Average ${Number(score?.average || 0).toFixed(1)}</span><span>${trend >= 0 ? '+' : ''}${trend.toFixed(1)} vs previous</span>`;
 }
 function renderVocab(items) {
   document.getElementById('vocab-list').innerHTML = (items || []).map(item => `

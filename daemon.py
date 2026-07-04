@@ -44,6 +44,16 @@ MIN_SPEECH_RMS = 0.002
 CLIENT_RECV_TIMEOUT = 2.0
 MAX_RECORDING_SECONDS = 300
 MAX_AUDIO_STALL_SECONDS = 20
+INPUT_DEVICE_HINT = os.environ.get("DICTATE_INPUT_DEVICE", "").strip()
+TRANSCRIBE_INITIAL_PROMPT = os.environ.get(
+    "DICTATE_INITIAL_PROMPT",
+    (
+        "The speaker mixes English and European Portuguese while coding and working with AI tools. "
+        "Prefer natural English punctuation. Common terms: Codex, Claude Code, GitHub, Wispr Flow, "
+        "Whisper, dashboard, LaunchAgent, Hammerspoon, Karabiner, Playwright, Repz AI, VibeVoice, "
+        "MacBook, desktop, simulator, screenshot, prompt, repo, use cases, English structure score."
+    ),
+)
 
 _transcribe_lock = threading.Lock()
 _transcribe_busy = False
@@ -99,19 +109,41 @@ def select_input_device() -> int | None:
         log(f"audio device query error: {e}")
         return None
 
+    input_devices = [
+        (i, d)
+        for i, d in enumerate(devices)
+        if int(d.get("max_input_channels") or 0) > 0
+    ]
+    if not input_devices:
+        raise RuntimeError("No audio input devices found")
+
+    if INPUT_DEVICE_HINT:
+        if INPUT_DEVICE_HINT.isdigit():
+            idx = int(INPUT_DEVICE_HINT)
+            if any(i == idx for i, _ in input_devices):
+                return idx
+        hint = INPUT_DEVICE_HINT.lower()
+        for i, d in input_devices:
+            if hint in str(d.get("name", "")).lower():
+                return i
+        log(f"DICTATE_INPUT_DEVICE={INPUT_DEVICE_HINT!r} not found; falling back")
+
     for i, d in enumerate(devices):
-        if d["max_input_channels"] > 0 and "MacBook" in d["name"]:
+        name = str(d.get("name", ""))
+        if d["max_input_channels"] > 0 and any(token in name for token in ("MacBook", "Studio Display", "iMac")):
             return i
 
-    available = [
-        f"{i}:{d['name']}"
-        for i, d in enumerate(devices)
-        if d["max_input_channels"] > 0
-    ]
-    raise RuntimeError(
-        "MacBook microphone not found; refusing to use another input. "
-        f"Available inputs: {available}"
-    )
+    try:
+        default_input = sd.default.device[0]
+        if default_input is not None and any(i == int(default_input) for i, _ in input_devices):
+            log(f"using system default input device {default_input}")
+            return int(default_input)
+    except Exception:
+        pass
+
+    first_idx = input_devices[0][0]
+    log(f"using first available input device {first_idx}:{input_devices[0][1].get('name')}")
+    return first_idx
 
 
 def input_device_name(device: int | None) -> str:
@@ -282,6 +314,7 @@ def transcribe_direct(audio: np.ndarray) -> str:
         path_or_hf_repo=MODEL,
         language=LANG,
         fp16=True,
+        initial_prompt=TRANSCRIBE_INITIAL_PROMPT,
         condition_on_previous_text=False,
         no_speech_threshold=0.95,
         logprob_threshold=-2.0,

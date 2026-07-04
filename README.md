@@ -139,6 +139,8 @@ Fixes:
 Everything is a constant at the top of `daemon.py`:
 
 - **Language** — `LANG = None` auto-detects Portuguese, English, and mixed dictation. Use `"pt"` or `"en"` to force a single language.
+- **Vocabulary hint** — `DICTATE_INITIAL_PROMPT` can override the Whisper context prompt used for mixed EN/PT dictation and domain words.
+- **Input device** — `DICTATE_INPUT_DEVICE` can be an input index or part of a device name, for example `DICTATE_INPUT_DEVICE="USB"` or `DICTATE_INPUT_DEVICE="Studio Display"`. If unset, Dictate prefers Apple/internal microphones, then the macOS default input, then the first available input. This makes the same setup work on MacBook, iMac, Mac mini, and desktops with external microphones.
 - **Model** — swap `MODEL` for a lighter one if you want more speed over accuracy:
   `mlx-community/whisper-medium-mlx`, `whisper-small-mlx`, or the English-only
   `mlx-community/distil-whisper-large-v3`.
