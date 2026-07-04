@@ -23,7 +23,7 @@ echo "==> pre-cache model (large-v3-turbo, ~1.5GB)"
 python -c "import mlx_whisper, numpy as np; mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo='mlx-community/whisper-large-v3-turbo', language='pt')"
 
 echo "==> chmod scripts"
-chmod +x "$DICT_DIR"/client.sh "$DICT_DIR"/daemon.py
+chmod +x "$DICT_DIR"/client.sh "$DICT_DIR"/daemon.py "$DICT_DIR"/dashboard_watch.sh
 
 echo "==> launchd plist"
 PLIST="$HOME/Library/LaunchAgents/com.fran.dictate.plist"
@@ -52,6 +52,33 @@ EOF
 
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"
+
+echo "==> dashboard watcher"
+WATCH_PLIST="$HOME/Library/LaunchAgents/com.fran.dictate.dashboard-watch.plist"
+cat > "$WATCH_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.fran.dictate.dashboard-watch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$DICT_DIR/dashboard_watch.sh</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>60</integer>
+  <key>StandardOutPath</key><string>$DICT_DIR/logs/dashboard-watch.stdout.log</string>
+  <key>StandardErrorPath</key><string>$DICT_DIR/logs/dashboard-watch.stderr.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+</dict>
+</plist>
+EOF
+
+launchctl unload "$WATCH_PLIST" 2>/dev/null || true
+launchctl load "$WATCH_PLIST"
 
 echo "==> daemon started. teste: ~/dictate/client.sh PING (deve responder PONG após ~30s de warmup)"
 echo

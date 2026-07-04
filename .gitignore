@@ -7,6 +7,7 @@ __pycache__/
 
 logs/
 history.jsonl
+.dashboard-watch.status
 
 .env
 .env.*

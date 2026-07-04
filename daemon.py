@@ -38,11 +38,12 @@ LOG_PATH = Path.home() / "dictate" / "logs" / "daemon.log"
 HISTORY_PATH = Path.home() / "dictate" / "history.jsonl"
 MODEL = "mlx-community/whisper-large-v3-turbo"
 SAMPLE_RATE = 16000
-LANG = "pt"
+LANG = None  # auto-detect: supports Portuguese, English, and mixed dictation better than forcing PT
 DASHBOARD_PORT = 7717
 MIN_SPEECH_RMS = 0.002
 CLIENT_RECV_TIMEOUT = 2.0
-MAX_RECORDING_SECONDS = 600
+MAX_RECORDING_SECONDS = 300
+MAX_AUDIO_STALL_SECONDS = 20
 
 _transcribe_lock = threading.Lock()
 _transcribe_busy = False
@@ -52,8 +53,14 @@ _cancel_event = threading.Event()
 def log(msg: str) -> None:
     ts = time.strftime("%H:%M:%S")
     line = f"[{ts}] {msg}\n"
-    sys.stdout.write(line)
-    sys.stdout.flush()
+    # stdout goes to launchd's StandardOutPath; if the disk is full a flush
+    # raises ENOSPC. That MUST NOT kill the calling thread (it used to wedge
+    # the accept loop / transcription thread), so swallow every write error.
+    try:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    except Exception:
+        pass
     try:
         with open(LOG_PATH, "a") as f:
             f.write(line)
@@ -122,6 +129,7 @@ class Recorder:
         self.frames: list[np.ndarray] = []
         self.lock = threading.Lock()
         self.started_at: float | None = None
+        self.last_frame_at: float | None = None
         self.generation = 0
 
     def _cb(self, indata, frames, t, status) -> None:
@@ -129,6 +137,7 @@ class Recorder:
             log(f"audio status: {status}")
         with self.lock:
             self.frames.append(indata.copy())
+            self.last_frame_at = time.time()
         try:
             rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
             write_level(rms)
@@ -136,34 +145,64 @@ class Recorder:
             pass
 
     def _watchdog(self, generation: int) -> None:
-        while True:
-            time.sleep(5)
-            with self.lock:
-                if self.stream is None or self.generation != generation:
+        try:
+            while True:
+                time.sleep(5)
+                with self.lock:
+                    if self.stream is None or self.generation != generation:
+                        return
+                    started_at = self.started_at
+                    last_frame_at = self.last_frame_at
+                if started_at is None:
                     return
-                started_at = self.started_at
-            if started_at is None:
-                return
-            elapsed = time.time() - started_at
-            if elapsed < MAX_RECORDING_SECONDS:
-                continue
-            log(f"recording watchdog cancelling stale recording ({elapsed:.1f}s)")
-            self.stop(discard=True)
+
+                now = time.time()
+                elapsed = now - started_at
+                stalled_for = now - last_frame_at if last_frame_at else elapsed
+                if elapsed >= MAX_RECORDING_SECONDS:
+                    log(f"recording watchdog cancelling stale recording ({elapsed:.1f}s)")
+                    self.stop(discard=True)
+                    write_status("ready")
+                    write_level(0.0)
+                    return
+                if stalled_for >= MAX_AUDIO_STALL_SECONDS:
+                    log(f"recording watchdog cancelling stalled audio stream ({stalled_for:.1f}s without frames)")
+                    self.stop(discard=True)
+                    write_status("ready")
+                    write_level(0.0)
+                    return
+        except Exception as e:
+            log(f"recording watchdog error: {e}")
+            try:
+                self.stop(discard=True)
+            except Exception:
+                pass
             write_status("ready")
-            return
+            write_level(0.0)
+
+    def _close_stream(self, stream: sd.InputStream) -> None:
+        # PortAudio/CoreAudio can deadlock in Pa_StopStream on macOS. Abort does
+        # not wait for pending buffers and still lets us use the frames already
+        # collected by the callback.
+        try:
+            stream.abort()
+        except Exception as e:
+            log(f"stream abort error: {e}")
+        try:
+            stream.close()
+        except Exception as e:
+            log(f"stream close error: {e}")
 
     def start(self) -> None:
         if self.stream is not None:
-            log("already recording — closing old stream")
-            try:
-                self.stream.stop()
-                self.stream.close()
-            except Exception:
-                pass
+            log("already recording — aborting old stream")
+            old_stream = self.stream
             self.stream = None
+            self._close_stream(old_stream)
         with self.lock:
             self.frames = []
             self.started_at = None
+            self.last_frame_at = None
             self.generation += 1
         device = select_input_device()
         self.stream = sd.InputStream(
@@ -177,6 +216,7 @@ class Recorder:
         self.stream.start()
         with self.lock:
             self.started_at = time.time()
+            self.last_frame_at = self.started_at
             generation = self.generation
         write_status("recording")
         log(f"REC start (device={device}, name={input_device_name(device)})")
@@ -185,14 +225,17 @@ class Recorder:
     def stop(self, discard: bool = False) -> np.ndarray:
         if self.stream is None:
             return np.zeros(0, dtype=np.float32)
-        self.stream.stop()
-        self.stream.close()
+        stream = self.stream
         self.stream = None
         write_level(0.0)
+        self._close_stream(stream)
         with self.lock:
             self.started_at = None
+            self.last_frame_at = None
             self.generation += 1
             if not self.frames:
+                if discard:
+                    self.frames = []
                 return np.zeros(0, dtype=np.float32)
             audio = np.concatenate(self.frames, axis=0).flatten()
             if discard:
@@ -206,12 +249,19 @@ class Recorder:
 def save_history(text: str, duration: float) -> None:
     if not text.strip():
         return
+    try:
+        from dashboard import analyze_text
+
+        meta = analyze_text(text)
+    except Exception:
+        meta = {}
     entry = {
         "ts": time.time(),
         "iso": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "text": text,
         "words": len(text.split()),
         "duration": round(duration, 2),
+        "meta": meta,
     }
     try:
         with open(HISTORY_PATH, "a") as f:
@@ -374,60 +424,76 @@ def serve() -> None:
             if not data:
                 log("client sent empty command; closing")
                 continue
-            if data == "START":
-                _cancel_event.clear()
-                rec.start()
-                safe_send(conn, b"OK\n")
-            elif data in ("STOP", "STOP_PASTE"):
-                audio = rec.stop()
-                if _transcribe_busy:
-                    log("transcription already in progress, skipping")
-                    safe_send(conn, b'{"text":""}\n')
-                    continue
-                do_paste = data == "STOP_PASTE"
-                _transcribe_busy = True
-                write_result("")
-                t = threading.Thread(
-                    target=handle_stop,
-                    args=(audio, do_paste, last_text),
-                    daemon=True,
-                )
-                t.start()
-                safe_send(conn, b"TRANSCRIBING\n")
-            elif data == "PASTE":
-                paste()
-                safe_send(conn, b"OK\n")
-            elif data == "CANCEL":
-                rec.stop()
-                if _transcribe_busy:
-                    _cancel_event.set()
-                else:
+            # A failing handler (e.g. mic gone -> rec.start raises, or a disk
+            # error) must never escape the accept loop. If it does, the daemon
+            # stops accepting commands while the process stays alive => the HUD
+            # shows "recording" forever and no audio is captured. Contain it.
+            try:
+                if data == "START":
                     _cancel_event.clear()
+                    rec.start()
+                    safe_send(conn, b"OK\n")
+                elif data in ("STOP", "STOP_PASTE"):
+                    audio = rec.stop()
+                    if _transcribe_busy:
+                        log("transcription already in progress, skipping")
+                        safe_send(conn, b'{"text":""}\n')
+                        continue
+                    do_paste = data == "STOP_PASTE"
+                    _transcribe_busy = True
                     write_result("")
-                    write_status("ready")
-                log("CANCEL")
-                safe_send(conn, b"OK\n")
-            elif data == "STATE":
-                if rec.stream is not None:
-                    safe_send(conn, b"REC\n")
-                elif _transcribe_busy:
+                    t = threading.Thread(
+                        target=handle_stop,
+                        args=(audio, do_paste, last_text),
+                        daemon=True,
+                    )
+                    t.start()
                     safe_send(conn, b"TRANSCRIBING\n")
+                elif data == "PASTE":
+                    paste()
+                    safe_send(conn, b"OK\n")
+                elif data == "CANCEL":
+                    rec.stop()
+                    if _transcribe_busy:
+                        _cancel_event.set()
+                    else:
+                        _cancel_event.clear()
+                        write_result("")
+                        write_status("ready")
+                    log("CANCEL")
+                    safe_send(conn, b"OK\n")
+                elif data == "STATE":
+                    if rec.stream is not None:
+                        safe_send(conn, b"REC\n")
+                    elif _transcribe_busy:
+                        safe_send(conn, b"TRANSCRIBING\n")
+                    else:
+                        safe_send(conn, b"IDLE\n")
+                elif data == "PING":
+                    safe_send(conn, b"PONG\n")
+                elif data == "LAST":
+                    safe_send(conn, (last_text[0] + "\n").encode())
+                elif data == "BUSY":
+                    safe_send(conn, b"YES\n" if _transcribe_busy else b"NO\n")
+                elif data == "RESULT":
+                    try:
+                        with open("/tmp/dictate.result") as f:
+                            result = f.read()
+                        safe_send(conn, result.encode() + b"\n")
+                    except FileNotFoundError:
+                        safe_send(conn, b'{"text":""}\n')
                 else:
-                    safe_send(conn, b"IDLE\n")
-            elif data == "PING":
-                safe_send(conn, b"PONG\n")
-            elif data == "LAST":
-                safe_send(conn, (last_text[0] + "\n").encode())
-            elif data == "BUSY":
-                safe_send(conn, b"YES\n" if _transcribe_busy else b"NO\n")
-            elif data == "RESULT":
+                    safe_send(conn, b"ERR\n")
+            except Exception as e:
+                log(f"command {data!r} failed: {e}")
+                # never leave the daemon stuck in a phantom recording state
                 try:
-                    with open("/tmp/dictate.result") as f:
-                        result = f.read()
-                    safe_send(conn, result.encode() + b"\n")
-                except FileNotFoundError:
-                    safe_send(conn, b'{"text":""}\n')
-            else:
+                    rec.stop(discard=True)
+                except Exception:
+                    pass
+                _transcribe_busy = False
+                write_status("ready")
+                write_level(0.0)
                 safe_send(conn, b"ERR\n")
 
 

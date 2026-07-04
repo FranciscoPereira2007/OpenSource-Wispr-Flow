@@ -30,7 +30,7 @@ It's the tool I use every day. It's about 500 lines of Python. That's the point.
 - **Fast.** `mlx-whisper` (large-v3-turbo, fp16) on Apple Silicon: ~300–500 ms for a short sentence. The model stays warm, so there's no cold start after the first run.
 - **Actually private.** Audio is captured, transcribed, and thrown away in memory. Nothing is uploaded. There is no network code.
 - **Always the right mic.** It records from the MacBook's built-in microphone on purpose — even with AirPods connected — so you never get muffled dictation from an earbud mic.
-- **A local history dashboard** at `localhost:7717`: every transcript, with word count and average WPM. Runs on your machine, served from the same daemon (see screenshot above).
+- **A local learning dashboard** at `localhost:7717`: editable transcript history, word count, WPM, English/Portuguese split, use-case categories, and a small phrase bank for daily practice. Runs on your machine, served from the same daemon (see screenshot above).
 - **Starts on login** via `launchd` and stays running.
 
 ## How it works
@@ -89,11 +89,54 @@ Then grant the permissions macOS asks for once:
 tail -f ~/dictate/logs/daemon.log
 ```
 
+## Dashboard always-on
+
+The local dashboard lives at `http://127.0.0.1:7717/`.
+
+The dashboard includes:
+
+- transcript history with copy, edit, and delete actions
+- daily word progress
+- English vs Portuguese word percentages
+- use-case categories such as Code, Content, Business, Fitness, and English
+- 5 useful phrases to repeat or copy during the day
+
+There are two LaunchAgents:
+
+- `com.fran.dictate`: keeps the dictation daemon, microphone, and transcription service alive.
+- `com.fran.dictate.dashboard-watch`: checks the dashboard every 60 seconds. If it goes down, it restarts the daemon; when it responds again, it opens the dashboard in Chrome.
+
+Useful commands:
+
+```bash
+launchctl print gui/$(id -u)/com.fran.dictate
+launchctl print gui/$(id -u)/com.fran.dictate.dashboard-watch
+tail -f ~/dictate/logs/dashboard-watch.log
+```
+
+## Debug note — 2026-06-14/15
+
+Symptom: the overlay could stay stuck in recording mode and nothing was
+transcribed. Root cause: the Python process could hang in CoreAudio/PortAudio
+while calling `Pa_StopStream` (`AudioOutputUnitStop`), leaving
+`/tmp/dictate.sock` unresponsive even though the LaunchAgent still looked
+"running".
+
+Fixes:
+
+- `daemon.py` closes streams with `abort()+close()` instead of `stop()+close()`.
+- `daemon.py` cancels stale recordings after 5 minutes and cancels audio streams
+  that stop delivering frames for 20 seconds.
+- `client.sh STOP/STOP_PASTE/CANCEL` restarts the LaunchAgent if the socket is
+  unresponsive while `/tmp/dictate.status` says `recording` or `transcribing`.
+- Hammerspoon can clear/cancel the overlay if a recording lasts longer than 5
+  minutes or `STATE` stops responding.
+
 ## Tweaks
 
 Everything is a constant at the top of `daemon.py`:
 
-- **Language** — `LANG = "pt"`. Use `"en"` for English, or `None` to auto-detect.
+- **Language** — `LANG = None` auto-detects Portuguese, English, and mixed dictation. Use `"pt"` or `"en"` to force a single language.
 - **Model** — swap `MODEL` for a lighter one if you want more speed over accuracy:
   `mlx-community/whisper-medium-mlx`, `whisper-small-mlx`, or the English-only
   `mlx-community/distil-whisper-large-v3`.
@@ -103,7 +146,9 @@ Everything is a constant at the top of `daemon.py`:
 
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.fran.dictate.plist
+launchctl unload ~/Library/LaunchAgents/com.fran.dictate.dashboard-watch.plist
 rm ~/Library/LaunchAgents/com.fran.dictate.plist
+rm ~/Library/LaunchAgents/com.fran.dictate.dashboard-watch.plist
 rm ~/.config/karabiner/assets/complex_modifications/dictate.json
 # then remove the DICTATE_HOOK block from ~/.hammerspoon/init.lua
 rm -rf ~/dictate
