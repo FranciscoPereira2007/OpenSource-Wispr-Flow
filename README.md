@@ -31,6 +31,7 @@ It's the tool I use every day. It's about 500 lines of Python. That's the point.
 - **Actually private.** Audio is captured, transcribed, and thrown away in memory. Nothing is uploaded. There is no network code.
 - **Flexible mic selection.** It prefers Apple/internal microphones, but also works with Studio Display, iMac, Mac mini, USB microphones, and the macOS default input.
 - **A local learning dashboard** at `localhost:7717`: editable transcript history, word count, WPM, English/Portuguese split, use-case categories, keyboard settings, and a small phrase bank for daily practice. Runs on your machine, served from the same daemon (see screenshot above).
+- **Optional voice replies.** Agents can keep writing normal text responses and also read the final summary aloud with `voice_reply.sh`.
 - **Starts on login** via `launchd` and stays running.
 
 ## How it works
@@ -127,6 +128,22 @@ launchctl print gui/$(id -u)/com.fran.dictate
 launchctl print gui/$(id -u)/com.fran.dictate.dashboard-watch
 tail -f ~/dictate/logs/dashboard-watch.log
 ```
+
+## Voice replies
+
+Dictate is already local STT: you speak, it becomes text. `voice_reply.sh` adds
+the first TTS layer: an agent can finish the work, send the normal text response,
+and read the same summary aloud.
+
+```bash
+~/dictate/voice_reply.sh "Task finished. The dashboard is live."
+echo "Your English score today is 6 out of 10." | ~/dictate/voice_reply.sh
+~/dictate/voice_reply.sh --list-voices
+```
+
+This is intentionally not real-time conversation yet. The recommended flow is:
+text remains the source of truth, audio reads the final result, and real-time
+streaming voice can be added later once the basic voice loop feels useful.
 
 ## Debug note — 2026-06-14/15
 

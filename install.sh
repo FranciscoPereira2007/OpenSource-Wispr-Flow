@@ -23,7 +23,7 @@ echo "==> pre-cache model (large-v3-turbo, ~1.5GB)"
 python -c "import mlx_whisper, numpy as np; mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo='mlx-community/whisper-large-v3-turbo', language='pt')"
 
 echo "==> chmod scripts"
-chmod +x "$DICT_DIR"/client.sh "$DICT_DIR"/daemon.py "$DICT_DIR"/dashboard_watch.sh
+chmod +x "$DICT_DIR"/client.sh "$DICT_DIR"/daemon.py "$DICT_DIR"/dashboard_watch.sh "$DICT_DIR"/voice_reply.sh
 
 echo "==> launchd plist"
 PLIST="$HOME/Library/LaunchAgents/com.fran.dictate.plist"
