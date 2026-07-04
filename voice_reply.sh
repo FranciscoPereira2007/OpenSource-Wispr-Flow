@@ -5,10 +5,10 @@
 #   echo "Task finished." | ~/dictate/voice_reply.sh
 set -euo pipefail
 
-EN_VOICE="${DICTATE_REPLY_EN_VOICE:-Shelley (Inglês (EUA))}"
+EN_VOICE="${DICTATE_REPLY_EN_VOICE:-Samantha}"
 PT_VOICE="${DICTATE_REPLY_PT_VOICE:-Joana}"
 VOICE="${DICTATE_REPLY_VOICE:-}"
-RATE="${DICTATE_REPLY_RATE:-145}"
+RATE="${DICTATE_REPLY_RATE:-155}"
 OUT_FILE="${DICTATE_REPLY_FILE:-/tmp/dictate-last-reply.txt}"
 LANGUAGE="${DICTATE_REPLY_LANG:-auto}"
 
@@ -21,10 +21,10 @@ Usage:
 
 Environment:
   DICTATE_REPLY_LANG      default: auto
-  DICTATE_REPLY_EN_VOICE  default: Shelley (Inglês (EUA))
+  DICTATE_REPLY_EN_VOICE  default: Samantha
   DICTATE_REPLY_PT_VOICE  default: Joana
   DICTATE_REPLY_VOICE     optional override for all languages
-  DICTATE_REPLY_RATE      default: 145
+  DICTATE_REPLY_RATE      default: 155
 EOF
 }
 

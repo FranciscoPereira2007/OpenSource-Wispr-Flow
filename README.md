@@ -147,9 +147,13 @@ This is intentionally not real-time conversation yet. The recommended flow is:
 text remains the source of truth, audio reads the final result, and real-time
 streaming voice can be added later once the basic voice loop feels useful.
 
-The default English voice is `Shelley (Inglês (EUA))` (`en_US`) at `145` words
-per minute. The default Portuguese voice is `Joana` (`pt_PT`). Use `--lang en`
-or `--lang pt` to force the language, or leave it on automatic detection.
+The default English voice is `Samantha` (`en_US`) at `155` words per minute. The
+default Portuguese voice is `Joana` (`pt_PT`). Use `--lang en` or `--lang pt` to
+force the language, or leave it on automatic detection.
+
+For a better voice than macOS `say`, the next local/free upgrade should be a
+real TTS model such as Kokoro, Piper, or VibeVoice instead of another built-in
+system voice.
 
 ## Debug note — 2026-06-14/15
 
