@@ -99,7 +99,9 @@ The dashboard includes:
 - daily word progress
 - English vs Portuguese word percentages
 - use-case categories such as Code, Content, Business, Fitness, and English
-- 5 useful phrases to repeat or copy during the day
+- an English structure score from 0 to 10 for the latest English/mixed dictation
+- words to learn from Portuguese to English
+- your original phrases next to a better English version
 
 There are two LaunchAgents:
 

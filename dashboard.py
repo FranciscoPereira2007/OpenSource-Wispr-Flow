@@ -252,6 +252,57 @@ SUGGESTED_PHRASES = [
     "Make the prompt more precise and easier to follow.",
 ]
 
+SUGGESTED_PHRASE_PAIRS = [
+    {
+        "raw": "How we can do to keep the website open?",
+        "better": "How can we keep the website open?",
+    },
+    {
+        "raw": "The website is not all time real time.",
+        "better": "The website is not always live.",
+    },
+    {
+        "raw": "Sometimes it go down.",
+        "better": "Sometimes it goes down.",
+    },
+    {
+        "raw": "I want to see my acknowledge on English.",
+        "better": "I want to track my English progress.",
+    },
+    {
+        "raw": "Rate my message from 0.10.",
+        "better": "Rate my message from 0 to 10.",
+    },
+]
+
+VOCABULARY_MAP = {
+    "actualizar": ("update", "We need to update the GitHub repo."),
+    "atualizar": ("update", "We need to update the GitHub repo."),
+    "ecra": ("screen", "The phone screen is blank."),
+    "ecrã": ("screen", "The phone screen is blank."),
+    "frases": ("phrases", "Show me five useful phrases."),
+    "imagem": ("image", "Use this image as a reference."),
+    "palavras": ("words", "How many English words did I use today?"),
+    "pontuacao": ("score", "My English score went up today."),
+    "pontuação": ("score", "My English score went up today."),
+    "recarregar": ("reload", "I do not want to reload the page."),
+    "servidor": ("server", "The server goes down sometimes."),
+    "site": ("website", "Keep the website open."),
+}
+
+BROKEN_PATTERNS = [
+    r"\bhow we can\b",
+    r"\bhow we can do\b",
+    r"\bwe need to our\b",
+    r"\bmy better version for my\b",
+    r"\bit go down\b",
+    r"\bthis is my phrases\b",
+    r"\bmy acknowledge\b",
+    r"\b0\.10\b",
+]
+
+LEARNING_STATE_PATH = Path.home() / "dictate" / "learning_state.json"
+
 
 def _strip_accents_for_markers(text: str) -> str:
     table = str.maketrans("áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ", "aaaaeeioooucAAAAEEIOOOUC")
@@ -260,6 +311,29 @@ def _strip_accents_for_markers(text: str) -> str:
 
 def _tokens(text: str) -> list[str]:
     return [m.group(0).lower() for m in WORD_RE.finditer(text)]
+
+
+def _english_structure_score(text: str, en_pct: int, pt_pct: int, total_words: int) -> float:
+    if total_words <= 0:
+        return 0.0
+    score = 2.0 + (en_pct / 100) * 5.5
+    if en_pct >= 85:
+        score += 1.0
+    elif en_pct >= 65:
+        score += 0.5
+    if pt_pct >= 35:
+        score -= 1.0
+    lower = text.lower()
+    for pattern in BROKEN_PATTERNS:
+        if re.search(pattern, lower):
+            score -= 0.7
+    if re.search(r"\b(\w+)\s+\1\b", lower):
+        score -= 0.4
+    if total_words > 55:
+        score -= 0.8
+    if total_words > 90:
+        score -= 0.9
+    return round(max(0.0, min(10.0, score)), 1)
 
 
 def analyze_text(text: str) -> dict:
@@ -273,6 +347,7 @@ def analyze_text(text: str) -> dict:
             "unknown_words": 0,
             "en_pct": 0,
             "pt_pct": 0,
+            "english_score": 0,
             "category": "general",
             "category_label": "General",
             "category_color": "#737373",
@@ -334,6 +409,7 @@ def analyze_text(text: str) -> dict:
         "unknown_words": unknown_words,
         "en_pct": en_pct,
         "pt_pct": pt_pct,
+        "english_score": _english_structure_score(text, en_pct, pt_pct, total),
         "category": category,
         "category_label": category_label,
         "category_color": category_color,
@@ -379,10 +455,69 @@ def _entry_date(entry: dict) -> datetime:
     return _parse_iso(entry.get("iso"), entry.get("ts"))
 
 
-def _sentence_candidates(entries: list[dict]) -> list[str]:
+def _entry_ts(entry: dict) -> float:
+    try:
+        return float(entry.get("ts") or _entry_date(entry).timestamp())
+    except Exception:
+        return _entry_date(entry).timestamp()
+
+
+def _read_learning_start() -> float | None:
+    if not LEARNING_STATE_PATH.exists():
+        return None
+    try:
+        with open(LEARNING_STATE_PATH) as f:
+            payload = json.load(f)
+        start = payload.get("start_ts")
+        return float(start) if start else None
+    except Exception:
+        return None
+
+
+def _write_learning_start(ts: float | None = None) -> float:
+    start = ts or time.time()
+    LEARNING_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(LEARNING_STATE_PATH, "w") as f:
+        json.dump({"start_ts": start, "iso": datetime.fromtimestamp(start).isoformat()}, f)
+    return start
+
+
+def _filter_learning_entries(entries: list[dict], learning_start: float | None) -> list[dict]:
+    if not learning_start:
+        return entries
+    return [entry for entry in entries if _entry_ts(entry) >= learning_start]
+
+
+def _better_english(phrase: str) -> str:
+    better = " ".join(phrase.split())
+    replacements = [
+        (r"\bHow we can do to\b", "How can we"),
+        (r"\bHow we can\b", "How can we"),
+        (r"\bwhat you did\b", "what you changed"),
+        (r"\bthis is my phrases\b", "these are my phrases"),
+        (r"\bit go down\b", "it goes down"),
+        (r"\bsometimes it go down\b", "sometimes it goes down"),
+        (r"\bwe need to our github to our users\b", "our users need access to our GitHub repo"),
+        (r"\bactualizar\b", "update"),
+        (r"\bgithub\b", "GitHub"),
+        (r"\bwhisperflow\b", "Wispr Flow"),
+        (r"\bwhisper flow\b", "Wispr Flow"),
+        (r"\bmy acknowledge on English\b", "my English progress"),
+        (r"\b0\.10\b", "0 to 10"),
+        (r"\bkeeps\b", "keep"),
+        (r"\bevery time time\b", "every time"),
+    ]
+    for pattern, repl in replacements:
+        better = re.sub(pattern, repl, better, flags=re.IGNORECASE)
+    if better and better[0].islower():
+        better = better[0].upper() + better[1:]
+    return better
+
+
+def _sentence_candidates(entries: list[dict]) -> list[dict]:
     today = datetime.now().date()
     candidates = []
-    for entry in entries:
+    for entry in sorted(entries, key=_entry_ts, reverse=True):
         if _entry_date(entry).date() != today:
             continue
         meta = entry.get("meta") or {}
@@ -393,18 +528,70 @@ def _sentence_candidates(entries: list[dict]) -> list[str]:
             phrase = " ".join(part.split())
             words = phrase.split()
             if 4 <= len(words) <= 22:
-                candidates.append(phrase)
+                better = _better_english(phrase)
+                candidates.append({"raw": phrase, "better": better})
     seen = set()
     unique = []
-    for phrase in candidates:
-        key = phrase.lower()
+    for item in candidates:
+        key = item["raw"].lower()
         if key not in seen:
             seen.add(key)
-            unique.append(phrase)
-    return (unique + SUGGESTED_PHRASES)[:5]
+            unique.append(item)
+    return (unique + SUGGESTED_PHRASE_PAIRS)[:5]
 
 
-def build_stats(entries: list[dict]) -> dict:
+def _vocabulary_gaps(entries: list[dict]) -> list[dict]:
+    found = []
+    seen = set()
+    for entry in sorted(entries, key=_entry_ts, reverse=True):
+        text = entry.get("text", "")
+        normalized = _strip_accents_for_markers(text)
+        for pt_word, (en_word, example) in VOCABULARY_MAP.items():
+            key = _strip_accents_for_markers(pt_word)
+            if key in normalized and en_word not in seen:
+                seen.add(en_word)
+                found.append({"from": pt_word, "to": en_word, "example": example})
+            if len(found) >= 6:
+                return found
+    fallback = [
+        {"from": "atualizar", "to": "update", "example": "Update the GitHub repo."},
+        {"from": "recarregar", "to": "reload", "example": "Reload the page."},
+        {"from": "servidor", "to": "server", "example": "The server goes down."},
+        {"from": "pontuação", "to": "score", "example": "My English score is 6 out of 10."},
+        {"from": "progresso", "to": "progress", "example": "I want to track my progress."},
+    ]
+    return found or fallback
+
+
+def _score_summary(entries: list[dict]) -> dict:
+    scored = [
+        {
+            "ts": _entry_ts(entry),
+            "score": float((entry.get("meta") or {}).get("english_score") or 0),
+            "words": int(entry.get("words") or 0),
+        }
+        for entry in entries
+        if (entry.get("meta") or {}).get("language") in {"en", "mixed"}
+    ]
+    scored = [item for item in scored if item["score"] > 0]
+    if not scored:
+        return {"current": 0, "previous": 0, "trend": 0, "average": 0, "label": "No English yet"}
+    scored.sort(key=lambda x: x["ts"])
+    current = scored[-1]["score"]
+    previous = scored[-2]["score"] if len(scored) > 1 else current
+    average = round(sum(item["score"] for item in scored) / len(scored), 1)
+    label = "Strong" if current >= 8 else "Good" if current >= 6.5 else "Building" if current >= 4.5 else "Needs structure"
+    return {
+        "current": current,
+        "previous": previous,
+        "trend": round(current - previous, 1),
+        "average": average,
+        "label": label,
+    }
+
+
+def build_stats(entries: list[dict], learning_start: float | None = None) -> dict:
+    entries = _filter_learning_entries(entries, learning_start)
     now = datetime.now()
     today = now.date()
     week_start = today - timedelta(days=6)
@@ -491,6 +678,7 @@ def build_stats(entries: list[dict]) -> dict:
         "total_seconds": round(total_secs, 1),
         "transcripts": len(entries),
         "wpm": total_wpm,
+        "learning_start": datetime.fromtimestamp(learning_start).isoformat() if learning_start else None,
         "today": {
             "words": today_words,
             "seconds": round(today_secs, 1),
@@ -516,6 +704,8 @@ def build_stats(entries: list[dict]) -> dict:
         ],
         "categories": categories,
         "phrase_bank": _sentence_candidates(entries),
+        "vocabulary_gaps": _vocabulary_gaps(entries),
+        "english_score": _score_summary(entries),
     }
 
 
@@ -529,7 +719,7 @@ def make_handler(history_path: Path):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET,PUT,DELETE,OPTIONS")
+            self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self.end_headers()
             self.wfile.write(body)
@@ -549,7 +739,15 @@ def make_handler(history_path: Path):
                 entries.reverse()
                 self._json(200, entries)
             elif url.path == "/api/stats":
-                self._json(200, build_stats(_read_entries(history_path)))
+                self._json(200, build_stats(_read_entries(history_path), _read_learning_start()))
+            else:
+                self._send(404, b"not found", "text/plain")
+
+        def do_POST(self):
+            url = urlparse(self.path)
+            if url.path == "/api/learning/reset":
+                start = _write_learning_start()
+                self._json(200, {"ok": True, "learning_start": datetime.fromtimestamp(start).isoformat()})
             else:
                 self._send(404, b"not found", "text/plain")
 
@@ -754,6 +952,12 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
   gap: 16px;
   margin-bottom: 28px;
 }
+.learning-grid {
+  display: grid;
+  grid-template-columns: .9fr 1.1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -796,6 +1000,36 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
 .legend-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
 .legend-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.score-wrap { display: grid; grid-template-columns: 124px 1fr; gap: 18px; align-items: center; }
+.score-ring {
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--accent) 0deg, #e5e1d8 0deg 360deg);
+  position: relative;
+}
+.score-ring:after {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.score-ring span {
+  position: relative;
+  z-index: 1;
+  font-size: 31px;
+  font-weight: 840;
+}
+.score-label { font-size: 22px; font-weight: 820; margin-bottom: 7px; }
+.score-sub, .score-average { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.vocab-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vocab-item { background: #faf9f6; border: 1px solid var(--line); border-radius: 9px; padding: 10px; }
+.vocab-pair { font-weight: 800; margin-bottom: 5px; }
+.vocab-pair span { color: var(--accent); }
+.vocab-example { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .history-head {
   display: flex;
   align-items: end;
@@ -804,6 +1038,7 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
   margin: 8px 0 10px;
 }
 .history-head h2 { margin: 0; font-size: 16px; }
+.history-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .clear-btn {
   background: transparent;
   border: 1px solid var(--line-strong);
@@ -884,16 +1119,20 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
 }
 .phrase-bank { display: grid; gap: 8px; }
 .phrase {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
-  align-items: center;
+  align-items: start;
   background: #faf9f6;
   border: 1px solid var(--line);
   border-radius: 9px;
-  padding: 10px 12px;
+  padding: 12px;
   font-size: 13px;
 }
+.phrase-lines { display: grid; gap: 5px; min-width: 0; }
+.phrase-raw { color: var(--muted); }
+.phrase-better { font-weight: 760; color: var(--ink); }
+.phrase-kicker { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; margin-right: 6px; }
 .phrase button {
   flex: 0 0 auto;
   border: 0;
@@ -924,11 +1163,14 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
   .side { display: none; }
   .shell { padding: 24px 16px; }
   .metrics { grid-template-columns: 1fr; }
+  .learning-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 720px) {
   .top { align-items: flex-start; flex-direction: column; }
   .challenge { grid-template-columns: 1fr; }
   .language-grid, .donut-wrap { grid-template-columns: 1fr; }
+  .score-wrap { grid-template-columns: 1fr; }
+  .vocab-list { grid-template-columns: 1fr; }
   .row { grid-template-columns: 1fr; }
   .actions { opacity: 1; }
 }
@@ -946,6 +1188,7 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
       <button class="nav-item active" data-nav="home" onclick="navTo('home')"><span class="nav-ico">⌘</span>Home</button>
       <button class="nav-item" data-nav="language" onclick="navTo('language')"><span class="nav-ico">◌</span>Language</button>
       <button class="nav-item" data-nav="phrases" onclick="navTo('phrases')"><span class="nav-ico">✎</span>Phrase Bank</button>
+      <button class="nav-item" data-nav="learning" onclick="navTo('learning')"><span class="nav-ico">◎</span>Learning</button>
       <button class="nav-item" data-nav="categories" onclick="navTo('categories')"><span class="nav-ico">◇</span>Categories</button>
     </nav>
     <div class="trial-card" onclick="navTo('challenge')" role="button" tabindex="0">
@@ -1010,14 +1253,35 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
       </div>
     </section>
 
+    <section class="learning-grid" id="learning">
+      <div class="panel pad score-panel">
+        <h3 class="panel-title">English Structure Score</h3>
+        <div class="score-wrap">
+          <div class="score-ring" id="score-ring"><span id="score-value">0.0</span></div>
+          <div>
+            <div class="score-label" id="score-label">No English yet</div>
+            <div class="score-sub">Latest English/mixed dictation · <span id="score-trend">0.0</span> vs previous</div>
+            <div class="score-average">Average today: <b id="score-average">0.0</b>/10</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel pad vocab-panel">
+        <h3 class="panel-title">Words To Learn</h3>
+        <div class="vocab-list" id="vocab-list"></div>
+      </div>
+    </section>
+
     <section class="panel pad" id="phrases" style="margin-bottom:24px">
-      <h3 class="panel-title">5 Phrases To Keep Today</h3>
+      <h3 class="panel-title">Your Phrases → Better English</h3>
       <div class="phrase-bank" id="phrase-bank"></div>
     </section>
 
     <div class="history-head">
       <h2>Today</h2>
-      <button class="clear-btn" onclick="clearAll()">Clear history</button>
+      <div class="history-actions">
+        <button class="clear-btn" onclick="resetLearning()">Reset learning stats</button>
+        <button class="clear-btn" onclick="clearAll()">Clear history</button>
+      </div>
     </div>
     <div id="list"></div>
   </main>
@@ -1054,12 +1318,19 @@ const DEMO_STATS = {
     {key:'fitness', label:'Fitness', color:'#16a34a', words:1350, count:19, pct:7}
   ],
   phrase_bank: [
-    'How can we keep the local dashboard open?',
-    'The server goes down after I restart the computer.',
-    'Please rewrite this message in natural English.',
-    'Update the GitHub repo with the new dashboard.',
-    'Show me the useful words I should remember.'
-  ]
+    {raw:'How we can keep the local dashboard open?', better:'How can we keep the local dashboard open?'},
+    {raw:'The server go down after I restart the computer.', better:'The server goes down after I restart the computer.'},
+    {raw:'Put my phrases and your phrases too.', better:'Show my original phrase and the better English version.'},
+    {raw:'I want to see my acknowledge on English.', better:'I want to track my English progress.'},
+    {raw:'Rate my message 0.10.', better:'Rate my message from 0 to 10.'}
+  ],
+  vocabulary_gaps: [
+    {from:'atualizar', to:'update', example:'Update the GitHub repo.'},
+    {from:'recarregar', to:'reload', example:'Reload the page.'},
+    {from:'servidor', to:'server', example:'The server goes down.'},
+    {from:'pontuação', to:'score', example:'My English score is 6 out of 10.'}
+  ],
+  english_score: {current: 6.2, previous: 5.4, trend: 0.8, average: 5.9, label:'Building'}
 };
 const DEMO_HISTORY = [
   {
@@ -1142,6 +1413,16 @@ async function clearAll() {
   await fetch('/api/history', {method: 'DELETE'});
   await load();
 }
+async function resetLearning() {
+  if (DEMO_MODE) {
+    toast('Demo mode');
+    return;
+  }
+  if (!confirm('Reset learning stats from now? History will stay saved.')) return;
+  await fetch('/api/learning/reset', {method: 'POST'});
+  toast('Learning stats reset');
+  await load();
+}
 function editEntry(ts) {
   editingTs = ts;
   renderList(historyCache);
@@ -1201,10 +1482,34 @@ function renderDonut(categories) {
     </div>`).join('');
 }
 function renderPhrases(phrases) {
-  document.getElementById('phrase-bank').innerHTML = phrases.map(p => `
+  document.getElementById('phrase-bank').innerHTML = phrases.map(item => {
+    const raw = typeof item === 'string' ? item : (item.raw || '');
+    const better = typeof item === 'string' ? item : (item.better || item.raw || '');
+    return `
     <div class="phrase">
-      <span>${esc(p)}</span>
-      <button onclick='copyText(${JSON.stringify(p)})'>Copy</button>
+      <div class="phrase-lines">
+        <div class="phrase-raw"><span class="phrase-kicker">You</span>${esc(raw)}</div>
+        <div class="phrase-better"><span class="phrase-kicker">Better</span>${esc(better)}</div>
+      </div>
+      <button onclick='copyText(${JSON.stringify(better)})'>Copy</button>
+    </div>`;
+  }).join('');
+}
+function renderScore(score) {
+  const current = Number(score?.current || 0);
+  const degrees = Math.max(0, Math.min(360, current * 36));
+  const trend = Number(score?.trend || 0);
+  document.getElementById('score-ring').style.background = `conic-gradient(var(--accent) 0deg ${degrees}deg, #e5e1d8 ${degrees}deg 360deg)`;
+  document.getElementById('score-value').textContent = current.toFixed(1);
+  document.getElementById('score-label').textContent = score?.label || 'No English yet';
+  document.getElementById('score-trend').textContent = `${trend >= 0 ? '+' : ''}${trend.toFixed(1)}`;
+  document.getElementById('score-average').textContent = Number(score?.average || 0).toFixed(1);
+}
+function renderVocab(items) {
+  document.getElementById('vocab-list').innerHTML = (items || []).map(item => `
+    <div class="vocab-item">
+      <div class="vocab-pair">${esc(item.from)} → <span>${esc(item.to)}</span></div>
+      <div class="vocab-example">${esc(item.example)}</div>
     </div>
   `).join('');
 }
@@ -1234,6 +1539,7 @@ function renderList(hist) {
       <div class="text">${esc(e.text)}</div>
       <div class="meta">
         <span class="tag">${languageLabel(meta)} · ${meta.en_pct || 0}% EN / ${meta.pt_pct || 0}% PT</span>
+        <span class="tag">${Number(meta.english_score || 0).toFixed(1)}/10 structure</span>
         <span class="tag">${esc(meta.category_label || 'General')}</span>
         <span class="tag">${e.words || 0} words</span>
       </div>`;
@@ -1275,6 +1581,8 @@ async function load() {
   document.getElementById('bar-unknown').style.width = `${today.unknown_pct || 0}%`;
   renderDonut(stats.categories || []);
   renderPhrases(stats.phrase_bank || []);
+  renderScore(stats.english_score || {});
+  renderVocab(stats.vocabulary_gaps || []);
   renderList(hist);
 }
 load();

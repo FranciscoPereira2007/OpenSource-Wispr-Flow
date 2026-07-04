@@ -8,6 +8,7 @@ __pycache__/
 logs/
 history.jsonl
 .dashboard-watch.status
+learning_state.json
 
 .env
 .env.*
