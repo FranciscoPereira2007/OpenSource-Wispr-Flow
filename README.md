@@ -139,15 +139,17 @@ and read the same summary aloud.
 ~/dictate/voice_reply.sh "Task finished. The dashboard is live."
 echo "Your English score today is 6 out of 10." | ~/dictate/voice_reply.sh
 ~/dictate/voice_reply.sh --list-voices
-DICTATE_REPLY_VOICE=Moira DICTATE_REPLY_RATE=155 ~/dictate/voice_reply.sh "This is a slower female English voice."
+~/dictate/voice_reply.sh --lang en "This is a slower female American English voice."
+~/dictate/voice_reply.sh --lang pt "Esta é uma voz feminina em português de Portugal."
 ```
 
 This is intentionally not real-time conversation yet. The recommended flow is:
 text remains the source of truth, audio reads the final result, and real-time
 streaming voice can be added later once the basic voice loop feels useful.
 
-The default voice is `Moira` at `155` words per minute because it is a slower
-female English voice for practice.
+The default English voice is `Samantha` (`en_US`) at `155` words per minute. The
+default Portuguese voice is `Joana` (`pt_PT`). Use `--lang en` or `--lang pt` to
+force the language, or leave it on automatic detection.
 
 ## Debug note — 2026-06-14/15
 
