@@ -30,7 +30,7 @@ It's the tool I use every day. It's about 500 lines of Python. That's the point.
 - **Fast.** `mlx-whisper` (large-v3-turbo, fp16) on Apple Silicon: ~300–500 ms for a short sentence. The model stays warm, so there's no cold start after the first run.
 - **Actually private.** Audio is captured, transcribed, and thrown away in memory. Nothing is uploaded. There is no network code.
 - **Flexible mic selection.** It prefers Apple/internal microphones, but also works with Studio Display, iMac, Mac mini, USB microphones, and the macOS default input.
-- **A local learning dashboard** at `localhost:7717`: editable transcript history, word count, WPM, English/Portuguese split, use-case categories, and a small phrase bank for daily practice. Runs on your machine, served from the same daemon (see screenshot above).
+- **A local learning dashboard** at `localhost:7717`: editable transcript history, word count, WPM, English/Portuguese split, use-case categories, keyboard settings, and a small phrase bank for daily practice. Runs on your machine, served from the same daemon (see screenshot above).
 - **Starts on login** via `launchd` and stays running.
 
 ## How it works
@@ -100,7 +100,7 @@ tail -f ~/dictate/logs/daemon.log
 
 The local dashboard lives at `http://127.0.0.1:7717/`.
 
-`?demo=1` is only for documentation screenshots. It shows fake fixed numbers and does not update from your real dictation history.
+Open `http://127.0.0.1:7717/` for your real live stats. `?demo=1` is only for documentation screenshots. It shows fake fixed numbers and does not update from your real dictation history.
 
 The dashboard includes:
 
@@ -111,6 +111,7 @@ The dashboard includes:
 - an English structure score from 0 to 10 for the latest English/mixed dictation
 - words to learn from Portuguese to English
 - your original phrases next to a better English version
+- a Settings section with the recommended Mac/external-keyboard shortcuts and optional MacBook Fn mappings
 
 There are two LaunchAgents:
 

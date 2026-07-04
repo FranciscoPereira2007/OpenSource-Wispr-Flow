@@ -1197,6 +1197,84 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
   cursor: pointer;
   font-weight: 760;
 }
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.settings-card {
+  background: #faf9f6;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 13px;
+  display: grid;
+  gap: 9px;
+}
+.settings-card.recommended { border-color: #c4b5fd; background: #fbfaff; }
+.settings-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(124,58,237,.10); }
+.settings-card h4 { margin: 0; font-size: 14px; }
+.settings-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.settings-current {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.settings-current b { color: var(--ink); }
+.shortcut-list { display: grid; gap: 6px; }
+.shortcut {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 23px;
+  padding: 3px 7px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+.preset-btn {
+  justify-self: start;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 6px 9px;
+  cursor: pointer;
+  font-weight: 760;
+  font-size: 12px;
+}
+.settings-card.selected .preset-btn {
+  border-color: #ddd6fe;
+  background: #ede9fe;
+  color: #4c1d95;
+}
+.settings-note {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.settings-note code {
+  color: var(--ink);
+  background: #f2f0eb;
+  border-radius: 5px;
+  padding: 2px 5px;
+}
 .toast {
   position: fixed;
   bottom: 24px;
@@ -1226,7 +1304,13 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
   font-size: 13px;
   font-weight: 720;
 }
-.demo-banner.show { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.demo-banner.show {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.demo-banner span { min-width: 0; }
 .demo-banner button {
   border: 0;
   background: #171717;
@@ -1249,6 +1333,9 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
   .language-grid, .donut-wrap { grid-template-columns: 1fr; }
   .score-wrap { grid-template-columns: 1fr; }
   .vocab-list { grid-template-columns: 1fr; }
+  .settings-grid { grid-template-columns: 1fr; }
+  .demo-banner.show { grid-template-columns: 1fr; }
+  .demo-banner button { justify-self: start; }
   .row { grid-template-columns: 1fr; }
   .actions { opacity: 1; }
 }
@@ -1268,6 +1355,7 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
       <button class="nav-item" data-nav="phrases" onclick="navTo('phrases')"><span class="nav-ico">✎</span>Phrase Bank</button>
       <button class="nav-item" data-nav="learning" onclick="navTo('learning')"><span class="nav-ico">◎</span>Learning</button>
       <button class="nav-item" data-nav="categories" onclick="navTo('categories')"><span class="nav-ico">◇</span>Categories</button>
+      <button class="nav-item" data-nav="settings" onclick="navTo('settings')"><span class="nav-ico">⚙</span>Settings</button>
     </nav>
     <div class="trial-card" onclick="navTo('challenge')" role="button" tabindex="0">
       <div class="trial-title">100 Words a Day</div>
@@ -1359,6 +1447,44 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
     <section class="panel pad" id="phrases" style="margin-bottom:24px">
       <h3 class="panel-title">Your Phrases → Better English</h3>
       <div class="phrase-bank" id="phrase-bank"></div>
+    </section>
+
+    <section class="panel pad" id="settings" style="margin-bottom:24px">
+      <h3 class="panel-title">Settings</h3>
+      <div class="settings-current">Keyboard preset <b id="keyboard-preset-label">Mac / external keyboard</b></div>
+      <div class="settings-grid">
+        <div class="settings-card recommended" data-preset-card="mac">
+          <h4>Mac / external keyboard</h4>
+          <div class="shortcut-list">
+            <div class="shortcut"><span>Start / stop</span><span class="kbd">Ctrl+Space</span></div>
+            <div class="shortcut"><span>Re-paste last text</span><span class="kbd">Ctrl+Shift+V</span></div>
+          </div>
+          <p>Recommended for MacBook, iMac, Mac mini, Studio Display, and USB keyboards.</p>
+          <button class="preset-btn" onclick="chooseKeyboardPreset('mac')">Use preset</button>
+        </div>
+        <div class="settings-card" data-preset-card="fn">
+          <h4>MacBook Fn optional</h4>
+          <div class="shortcut-list">
+            <div class="shortcut"><span>Hold to dictate</span><span class="kbd">Fn+Space</span></div>
+            <div class="shortcut"><span>Paste last text</span><span class="kbd">Fn</span></div>
+          </div>
+          <p>Optional Karabiner mapping if you prefer the laptop function key flow.</p>
+          <button class="preset-btn" onclick="chooseKeyboardPreset('fn')">Use preset</button>
+        </div>
+        <div class="settings-card" data-preset-card="manual">
+          <h4>Manual commands</h4>
+          <div class="shortcut-list">
+            <div class="shortcut"><span>Start</span><span class="kbd">client.sh START</span></div>
+            <div class="shortcut"><span>Stop</span><span class="kbd">client.sh STOP</span></div>
+            <div class="shortcut"><span>Paste</span><span class="kbd">client.sh PASTE</span></div>
+          </div>
+          <p>Use this when testing or when no global keyboard shortcut is available.</p>
+          <button class="preset-btn" onclick="chooseKeyboardPreset('manual')">Use preset</button>
+        </div>
+      </div>
+      <div class="settings-note">
+        Run <code>~/dictate/setup_hotkeys.sh</code> to install or refresh the keyboard shortcuts. Windows is not native yet; this build is macOS-first.
+      </div>
     </section>
 
     <div class="history-head">
@@ -1483,6 +1609,23 @@ function toast(msg) {
 async function copyText(txt) {
   await navigator.clipboard.writeText(txt);
   toast('Copied');
+}
+const KEYBOARD_PRESETS = {
+  mac: 'Mac / external keyboard',
+  fn: 'MacBook Fn optional',
+  manual: 'Manual commands'
+};
+function renderKeyboardPreset() {
+  const preset = localStorage.getItem('dictate_keyboard_preset') || 'mac';
+  document.getElementById('keyboard-preset-label').textContent = KEYBOARD_PRESETS[preset] || KEYBOARD_PRESETS.mac;
+  document.querySelectorAll('[data-preset-card]').forEach(card => {
+    card.classList.toggle('selected', card.dataset.presetCard === preset);
+  });
+}
+function chooseKeyboardPreset(preset) {
+  localStorage.setItem('dictate_keyboard_preset', preset);
+  renderKeyboardPreset();
+  toast('Keyboard preset saved');
 }
 async function delEntry(ts) {
   if (DEMO_MODE) {
@@ -1758,6 +1901,7 @@ async function load() {
   renderScore(stats.english_score || {});
   renderVocab(stats.vocabulary_gaps || []);
   renderList(hist);
+  renderKeyboardPreset();
 }
 load();
 setInterval(load, 5000);
