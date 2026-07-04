@@ -5,7 +5,7 @@
 #   echo "Task finished." | ~/dictate/voice_reply.sh
 set -euo pipefail
 
-VOICE="${DICTATE_REPLY_VOICE:-Daniel}"
+VOICE="${DICTATE_REPLY_VOICE:-Moira}"
 RATE="${DICTATE_REPLY_RATE:-155}"
 OUT_FILE="${DICTATE_REPLY_FILE:-/tmp/dictate-last-reply.txt}"
 
@@ -17,7 +17,7 @@ Usage:
   voice_reply.sh --list-voices
 
 Environment:
-  DICTATE_REPLY_VOICE  default: Daniel
+  DICTATE_REPLY_VOICE  default: Moira
   DICTATE_REPLY_RATE   default: 155
 EOF
 }
