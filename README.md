@@ -81,6 +81,11 @@ bash ~/dictate/install.sh
 bash ~/dictate/setup_hotkeys.sh
 ```
 
+`setup_hotkeys.sh` installs the compact Wispr-style overlay: black pill, cancel
+button, animated audio bars, and red stop button. If you already installed an
+older version, run the same command again; it backs up the old Hammerspoon hook
+and replaces it with the current GitHub version.
+
 Then grant the permissions macOS asks for once:
 
 1. Open **Hammerspoon** once -> _System Settings > Privacy & Security > Accessibility_ -> enable Hammerspoon.
