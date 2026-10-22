@@ -358,9 +358,13 @@ def analyze_text(text: str) -> dict:
     pt_hits = 0
     for raw, norm in zip(tokens, normalized):
         has_pt_chars = bool(re.search(r"[áàâãéêíóôõúç]", raw))
-        if norm in EN_MARKERS or raw in EN_MARKERS:
+        is_pt = raw in PT_MARKERS or norm in PT_MARKERS or has_pt_chars
+        # PT tem precedência nas palavras ambíguas (ex.: "no", "a", "e", "me"):
+        # senão função-palavras partilhadas contam falsamente como inglês e inflam o EN%.
+        is_en = (norm in EN_MARKERS or raw in EN_MARKERS) and not is_pt
+        if is_en:
             en_hits += 1
-        if raw in PT_MARKERS or norm in PT_MARKERS or has_pt_chars:
+        if is_pt:
             pt_hits += 1
 
     known = max(en_hits + pt_hits, 1)
@@ -480,6 +484,59 @@ def _write_learning_start(ts: float | None = None) -> float:
     with open(LEARNING_STATE_PATH, "w") as f:
         json.dump({"start_ts": start, "iso": datetime.fromtimestamp(start).isoformat()}, f)
     return start
+
+
+MIC_PREF_PATH = Path.home() / "dictate" / "mic_choice.txt"
+
+
+def read_mic_pref() -> str:
+    """'' = auto (built-in), 'system' = macOS default input, anything else = device name."""
+    try:
+        return MIC_PREF_PATH.read_text().strip()
+    except Exception:
+        return ""
+
+
+def _write_mic_pref(value: str) -> None:
+    MIC_PREF_PATH.parent.mkdir(parents=True, exist_ok=True)
+    MIC_PREF_PATH.write_text(value.strip())
+
+
+def list_input_devices() -> dict:
+    import sounddevice as sd
+
+    # PortAudio caches the device list at init, so a mic plugged in after the
+    # daemon started is invisible until we re-init. Dashboard runs inside the
+    # daemon process, so this refresh also fixes the recorder.
+    # ponytail: skip the refresh while recording — tearing down PortAudio under
+    # a live stream crashes CoreAudio.
+    try:
+        if Path("/tmp/dictate.status").read_text().strip() != "recording":
+            sd._terminate()
+            sd._initialize()
+    except Exception:
+        pass
+
+    try:
+        devices = sd.query_devices()
+    except Exception as e:
+        return {"devices": [], "selected": read_mic_pref(), "system_default": "", "error": str(e)}
+
+    try:
+        default_idx = int(sd.default.device[0])
+    except Exception:
+        default_idx = -1
+
+    out = []
+    system_default = ""
+    for i, d in enumerate(devices):
+        if int(d.get("max_input_channels") or 0) <= 0:
+            continue
+        name = str(d.get("name", ""))
+        if i == default_idx:
+            system_default = name
+        out.append({"index": i, "name": name, "is_system_default": i == default_idx})
+    return {"devices": out, "selected": read_mic_pref(), "system_default": system_default}
 
 
 def _filter_learning_entries(entries: list[dict], learning_start: float | None) -> list[dict]:
@@ -613,9 +670,14 @@ def build_stats(entries: list[dict], learning_start: float | None = None) -> dic
     for entry in entries:
         words = int(entry.get("words") or 0)
         duration = float(entry.get("duration") or 0)
-        meta = entry.get("meta") or analyze_text(entry.get("text", ""))
         dt = _entry_date(entry)
         day = dt.date()
+        # entradas de HOJE recalculadas com a lógica corrigida (poucas, custo baixo);
+        # histórico antigo mantém o meta guardado.
+        if day == today:
+            meta = analyze_text(entry.get("text", ""))
+        else:
+            meta = entry.get("meta") or analyze_text(entry.get("text", ""))
 
         total_words += words
         total_secs += duration
@@ -740,6 +802,8 @@ def make_handler(history_path: Path):
                 self._json(200, entries)
             elif url.path == "/api/stats":
                 self._json(200, build_stats(_read_entries(history_path), _read_learning_start()))
+            elif url.path == "/api/mic":
+                self._json(200, list_input_devices())
             else:
                 self._send(404, b"not found", "text/plain")
 
@@ -748,6 +812,15 @@ def make_handler(history_path: Path):
             if url.path == "/api/learning/reset":
                 start = _write_learning_start()
                 self._json(200, {"ok": True, "learning_start": datetime.fromtimestamp(start).isoformat()})
+            elif url.path == "/api/mic":
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(length) or b"{}")
+                except Exception:
+                    self._json(400, {"error": "invalid json"})
+                    return
+                _write_mic_pref(str(payload.get("device", "")))
+                self._json(200, {"ok": True, "selected": read_mic_pref()})
             else:
                 self._send(404, b"not found", "text/plain")
 
@@ -1081,6 +1154,19 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
 .score-sub, .score-average { color: var(--muted); font-size: 13px; line-height: 1.45; }
 .vocab-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .vocab-item { background: #faf9f6; border: 1px solid var(--line); border-radius: 9px; padding: 10px; }
+/* ---- Review de 5 palavras (foco escuro, minimal — wind-down) ---- */
+.review-overlay { position: fixed; inset: 0; z-index: 9999; display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.62); backdrop-filter: blur(14px) saturate(90%) brightness(.7); -webkit-backdrop-filter: blur(14px) saturate(90%) brightness(.7); }
+.review-overlay.show { display: flex; }
+.review-card { width: 300px; max-width: 84vw; background: #1b1b1d; border: 1px solid rgba(255,255,255,.08);
+  border-radius: 20px; padding: 20px; box-shadow: 0 30px 90px rgba(0,0,0,.6); animation: rvpop .18s ease; }
+@keyframes rvpop { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.review-word { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.07); }
+.review-word:last-of-type { border-bottom: 0; }
+.review-word .pair { font-size: 16px; color: #9a9a9e; }
+.review-word .pair span { color: #6aa9ff; font-size: 18px; font-weight: 600; }
+.review-close { margin-top: 16px; width: 100%; padding: 9px; border: 0; border-radius: 11px; background: #2c2c30; color: #eee; font-size: 13px; cursor: pointer; }
+.review-close:hover { background: #3a3a40; }
 .vocab-pair { font-weight: 800; margin-bottom: 5px; }
 .vocab-pair span { color: var(--accent); }
 .vocab-example { color: var(--muted); font-size: 12px; line-height: 1.35; }
@@ -1352,7 +1438,6 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
     <nav class="nav">
       <button class="nav-item active" data-nav="home" onclick="navTo('home')"><span class="nav-ico">⌘</span>Home</button>
       <button class="nav-item" data-nav="language" onclick="navTo('language')"><span class="nav-ico">◌</span>Language</button>
-      <button class="nav-item" data-nav="phrases" onclick="navTo('phrases')"><span class="nav-ico">✎</span>Phrase Bank</button>
       <button class="nav-item" data-nav="learning" onclick="navTo('learning')"><span class="nav-ico">◎</span>Learning</button>
       <button class="nav-item" data-nav="categories" onclick="navTo('categories')"><span class="nav-ico">◇</span>Categories</button>
       <button class="nav-item" data-nav="settings" onclick="navTo('settings')"><span class="nav-ico">⚙</span>Settings</button>
@@ -1438,15 +1523,6 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
           </div>
         </div>
       </div>
-      <div class="panel pad vocab-panel">
-        <h3 class="panel-title">Words To Learn</h3>
-        <div class="vocab-list" id="vocab-list"></div>
-      </div>
-    </section>
-
-    <section class="panel pad" id="phrases" style="margin-bottom:24px">
-      <h3 class="panel-title">Your Phrases → Better English</h3>
-      <div class="phrase-bank" id="phrase-bank"></div>
     </section>
 
     <section class="panel pad" id="settings" style="margin-bottom:24px">
@@ -1481,6 +1557,14 @@ h1 { margin: 0; font-size: 25px; line-height: 1.1; }
           <p>Use this when testing or when no global keyboard shortcut is available.</p>
           <button class="preset-btn" onclick="chooseKeyboardPreset('manual')">Use preset</button>
         </div>
+      </div>
+      <div class="settings-current" style="margin-top:20px">Microphone <b id="mic-label">Auto</b></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <select id="mic-select" onchange="saveMic()" style="flex:1;min-width:260px;padding:10px 12px;border-radius:10px;border:1px solid rgba(0,0,0,.15);background:#fff;font:inherit"></select>
+        <button class="preset-btn" onclick="loadMics()">Refresh</button>
+      </div>
+      <div class="settings-note">
+        Auto keeps the built-in MacBook mic. Pick a device to override — applies to the next dictation, no restart needed. Plugged something in? Hit Refresh.
       </div>
       <div class="settings-note">
         Run <code>~/dictate/setup_hotkeys.sh</code> to install or refresh the keyboard shortcuts. Windows is not native yet; this build is macOS-first.
@@ -1626,6 +1710,47 @@ function chooseKeyboardPreset(preset) {
   localStorage.setItem('dictate_keyboard_preset', preset);
   renderKeyboardPreset();
   toast('Keyboard preset saved');
+}
+async function loadMics() {
+  const sel = document.getElementById('mic-select');
+  if (!sel) return;
+  let data;
+  try {
+    data = await (await fetch('/api/mic')).json();
+  } catch (e) {
+    return;
+  }
+  const opts = [
+    {v: '', t: 'Auto (built-in MacBook mic)'},
+    {v: 'system', t: 'System default' + (data.system_default ? ' — ' + data.system_default : '')}
+  ].concat((data.devices || []).map(d => ({
+    v: d.name,
+    t: d.name + (d.is_system_default ? ' (system default)' : '')
+  })));
+  sel.innerHTML = '';
+  for (const o of opts) {
+    const el = document.createElement('option');
+    el.value = o.v;
+    el.textContent = o.t;
+    sel.appendChild(el);
+  }
+  sel.value = data.selected || '';
+  if (sel.selectedIndex < 0) sel.selectedIndex = 0;
+  document.getElementById('mic-label').textContent = sel.options[sel.selectedIndex].textContent;
+}
+async function saveMic() {
+  const sel = document.getElementById('mic-select');
+  if (DEMO_MODE) {
+    toast('Demo mode');
+    return;
+  }
+  await fetch('/api/mic', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({device: sel.value})
+  });
+  document.getElementById('mic-label').textContent = sel.options[sel.selectedIndex].textContent;
+  toast('Microphone saved');
 }
 async function delEntry(ts) {
   if (DEMO_MODE) {
@@ -1897,14 +2022,47 @@ async function load() {
   document.getElementById('bar-pt').style.width = `${today.pt_pct || 0}%`;
   document.getElementById('bar-unknown').style.width = `${today.unknown_pct || 0}%`;
   renderDonut(stats.categories || []);
-  renderPhrases(stats.phrase_bank || []);
   renderScore(stats.english_score || {});
-  renderVocab(stats.vocabulary_gaps || []);
+  latestVocab = stats.vocabulary_gaps || [];
+  maybeAutoReview();
   renderList(hist);
   renderKeyboardPreset();
 }
 load();
+loadMics();
 setInterval(load, 5000);
+</script>
+
+<div class="review-overlay" id="review-overlay" onclick="if(event.target.id==='review-overlay')closeReview()">
+  <div class="review-card">
+    <div id="review-words"></div>
+    <button class="review-close" onclick="closeReview()">Feito</button>
+  </div>
+</div>
+<script>
+let latestVocab = [];
+function showReview() {
+  const items = (latestVocab || []).slice(0, 5);
+  document.getElementById('review-words').innerHTML = items.map(it => `
+    <div class="review-word">
+      <div class="pair">${esc(it.from)} → <span>${esc(it.to)}</span></div>
+    </div>`).join('') || '<div class="review-word"><div class="pair">Sem palavras novas hoje</div></div>';
+  document.getElementById('review-overlay').classList.add('show');
+}
+function closeReview() {
+  document.getElementById('review-overlay').classList.remove('show');
+  try { localStorage.setItem('dictate_review_' + new Date().toISOString().slice(0,10), '1'); } catch (e) {}
+}
+function maybeAutoReview() {
+  const ov = document.getElementById('review-overlay');
+  if (ov.classList.contains('show')) return;
+  const now = new Date();
+  const key = 'dictate_review_' + now.toISOString().slice(0,10);
+  const p = new URLSearchParams(location.search);
+  if (p.get('review') === '1' && !sessionStorage.getItem('rv_url')) { sessionStorage.setItem('rv_url', '1'); showReview(); return; }
+  const mins = now.getHours() * 60 + now.getMinutes();
+  if (mins >= (21 * 60 + 55) && !localStorage.getItem(key)) { showReview(); }  // 21:55, antes da caminhada
+}
 </script>
 </body>
 </html>

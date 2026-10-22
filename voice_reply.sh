@@ -97,6 +97,9 @@ fi
 
 printf '%s\n' "$TEXT" > "$OUT_FILE"
 
-if ! say -v "$VOICE" -r "$RATE" "$TEXT" 2>/dev/null; then
+[ -f ~/dictate/.mute ] && exit 0
+PIPER=~/dictate/piper-venv/bin/piper; PV=~/dictate/piper-voices/pt_PT-tugão-medium.onnx
+if [ -x "$PIPER" ] && [ "${DICTATE_REPLY_ENGINE:-piper}" = piper ] && echo "$TEXT" | "$PIPER" -m "$PV" -f /tmp/dictate-reply.wav 2>/dev/null && afplay /tmp/dictate-reply.wav; then :
+elif [ "$VOICE" = system ] || ! say -v "$VOICE" -r "$RATE" "$TEXT" 2>/dev/null; then
   say -r "$RATE" "$TEXT"
 fi
